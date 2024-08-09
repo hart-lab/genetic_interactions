@@ -34,6 +34,9 @@
 import sys as sys
 import numpy as np
 import pandas as pd
+import scipy.stats as stats
+from sklearn.linear_model import LinearRegression
+
 
 def load_readcount_matrix(filepath, index_column=0, delimiter='\t'):
     """
@@ -46,7 +49,7 @@ def load_readcount_matrix(filepath, index_column=0, delimiter='\t'):
     reads_df = pd.read_csv(filepath, index_col=index_column, delimiter='\t')
     return reads_df
 
-def get_foldchange_matrix(reads_df, control_columns, min_reads=0, pseudocount=0):
+def get_foldchange_matrix(reads_df, control_columns, min_reads=0, pseudocount=1):
 	"""
     Given a dataframe of raw read counts,
     1. filter for T0 min read counts.
@@ -59,29 +62,76 @@ def get_foldchange_matrix(reads_df, control_columns, min_reads=0, pseudocount=0)
       this across multiple control columns?) Default=0.
 	-  pseudocount: Pseudocount added to the read counts to prevent division by or log of zero.
     """
-
     # control_columns to actual column names
-    try:
-        column_list = list(map(int, control_columns))
-        control_column_labels = reads.columns.values[column_list]
-    except ValueError:
-        control_column_labels = control_columns
+
+	try:
+		column_list = list(map(int, control_columns))
+		control_column_labels = reads.columns.values[column_list]
+	except ValueError:
+		control_column_labels = control_columns
 
 	print("Using controls: " + ",".join(map(str, control_column_labels)))
 
 	target_column_labels = [x for x in reads_df.columns.values if x not in control_column_labels ]
 	# target_column_labels[0] should still be the target gene
 
-    ctrl_sum = reads_df[ control_column_labels ].sum(axis=1)
-    fc_df = pd.DataFrame( index=reads_df.index.values, columns=target_column_labels, data=0.)
-    fc_df[ target_column_labels[0] ] = reads_df[ target_column_labels[0] ] # we hope ths is the target column
-    for col_name in target_column_labels[1:]:
-    	fc_df[col_name] = np.log2( ( (reads_df[col_name].values + pseudocount)/sum( reads_df[col_name].values ) ) /
-    	                           ( ( ctrl_sum + pseudocount ) / sum(ctrl_sum) ) )
+	ctrl_sum = reads_df[ control_column_labels ].sum(axis=1)
+	fc_df = pd.DataFrame( index=reads_df.index.values, columns=target_column_labels, data=0.)
+	fc_df[ target_column_labels[0] ] = reads_df[ target_column_labels[0] ] # we hope ths is the target column
+	for col_name in target_column_labels[1:]:
+		fc_df[col_name] = np.log2( ( (reads_df[col_name].values + pseudocount)/sum( reads_df[col_name].values ) ) /
+		                           ( ( ctrl_sum + pseudocount ) / sum(ctrl_sum) ) )
 
-    return fc_df
+	return fc_df
 
+def get_mean_foldchange(fc_df, target_columns=0, mean_replicates=True, groupby_targets=True):
+	"""
+    Given a dataframe of fold changes, return the mean across replicates and/or the mean
+    across guides targeting the same gene(s)
+    
+    Parameters:
+    - fc_df: dataframe of fold changes, where index is unique ID and first column is the target gene(s). Subsequent
+      columns are the replicates to be averaged.
+    - target_columns: Column labels or indices indicating replicates to be averaged. Not currently implemented.
+    - mean_replicates: whether to average across replicate columns. Default=True
+    - groupby_targets: whether to groupby(target gene).mean(). Default=True
+    """
+	if mean_replicates:
+		outcols = [fc_df.columns.values[0], 'meanFC']
+	else:
+		outcols = fc_df.columns.values
 
+	mean_fc_df = pd.DataFrame( index = fc_df.index.values, columns=outcols, data=0.)
+	mean_fc_df[ outcols[0] ] = fc_df[ outcols[0] ]
+
+	if mean_replicates:
+		mean_fc_df[ outcols[1] ] = fc_df[ fc_df.columns.values[1:] ].mean(1)
+	else:
+		mean_fc_df[ outcols[1:] ] = fc_df[ fc_df.columns.values[1:] ]
+
+	if groupby_targets:
+		mean_fc_df = mean_fc_df.groupby( outcols[0] ).mean()
+
+	return mean_fc_df
+
+def load_genelist(filepath, sep='\t', index_col=0):
+	gene_df = pd.read_table(filepath, sep=sep, index_col=index_col)
+	return gene_df
+
+def mode_center(mean_fc_df):
+	# assumes a polished fold change df where the index is the target gene(s). 
+	# set mode to zero across entire distribution
+	xx = np.linspace(-5, 4, 901)
+	kx = stats.gaussian_kde(mean_fc_df[ mean_fc_df.columns[0] ])
+	mode_x = xx[ np.argmax(kx.evaluate(xx)) ]
+	return mean_fc_df - mode_x
+
+def mode_center_vs_reference_genes(mean_fc_df, noness_genes):
+	# assumes a polished fold change df where the index is the target gene(s),
+	# NOT the unique guide ID
+	nonidx = [x for x in mean_fc_df.index.values if x in noness_genes]
+	modecenter_fc_df = mean_fc_df - mean_fc_df.loc[nonidx].median()
+	return modecenter_fc_df
 
 
 def get_args():
