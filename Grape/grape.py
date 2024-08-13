@@ -1,7 +1,7 @@
 #!/bin/env python
 
 #VERSION = "0.0.1"
-#BUILD   = 2
+#BUILD   = 3
 
 #--------------------------------
 # GRAPE: Genetic interaction Regression Analysis of Pairwise Effects
@@ -208,6 +208,75 @@ def do_regression( predictor_matrix, obs_vector, fit_intercept=False, delimiter=
 	metadata['Params']  = model.get_params()
 	return pairs, singles, metadata
 
+def get_zscore( regression_df, half_window_size=0, monotone_filter=True ):
+	"""
+	calculate zscore of genetic interactions through drugz variance window method
+
+	Parameters: 
+	- pairs: output of do_regression()
+	- half_window_size: half window size for calculating local variance. If set to 
+						zero (default), calculate global, not local variance
+	- monotonte filter: force monotonic increase in variance as 
+	Returns:
+	- pairs, with 'local_std' and 'GI_Zscore' column
+	"""
+
+	# sort the regression DF by expected fold change:
+
+	zscore_df = regression_df.sort_values('fc_exp', ascending=False)
+
+	# Intialize output columns
+	zscore_df[['local_std','GI_Zscore']] = 0.
+
+	if (half_window_size==0):
+		#
+		# if half_window_size = 0, use global instead of local Z score
+		#
+		zscore_df['local_std'] = zscore_df['GI_raw'].std()
+		zscore_df['GI_Zscore'] = stats.zscore( zscore_df.GI_raw.values )
+
+	else:
+		#
+		# otherwise step through the data and calculate local std
+		#
+		stepsize = int( np.ceil( half_window_size / 5) )
+		for idx in range( half_window_size, len(zscore_df) - half_window_size, stepsize):
+			#
+			# select the window slice
+			#
+			bin_ = zscore_df.iloc[idx - half_window_size : idx + half_window_size ].copy()
+			#
+			# remove outliers and calculate std
+			#
+			Q1,Q3 = bin_['GI_raw'].quantile([0.25,0.75])
+			IQR = Q3 - Q1
+			lower_bound = Q1 - 1.5*IQR
+			upper_bound = Q3 + 1.5*IQR
+			bin_ = bin_[(bin_['GI_raw'] >= lower_bound) & (bin_['GI_raw'] <= upper_bound)]
+			local_std = bin_['GI_raw'].std()
+			#
+			# assigne value in df
+			#
+			if (monotone_filter):
+				prev_std = zscore_df.iloc[idx-1, zscore_df.columns.get_loc('local_std')]
+				zscore_df.iloc[idx:idx+stepsize, zscore_df.columns.get_loc('local_std')]=max(local_std, prev_std)
+			else:
+				zscore_df.iloc[idx:idx+stepsize, zscore_df.columns.get_loc('local_std')]=local_std
+		#
+		# now for the first (0..half_window_size) and last segments of the df
+		#
+		zscore_df.iloc[:half_window_size, zscore_df.columns.get_loc('local_std')] = zscore_df.iloc[half_window_size, zscore_df.columns.get_loc('local_std')]
+		zscore_df.iloc[-half_window_size:, zscore_df.columns.get_loc('local_std')]= zscore_df.iloc[-half_window_size-1, zscore_df.columns.get_loc('local_std')]
+		#
+		# and calculate z score
+		#
+		zscore_df['GI_Zscore'] = zscore_df['GI_raw'] / zscore_df['local_std']   # mean had better be zero!
+	#
+	# sort by GI Z-score and return
+	#
+	zscore_df.sort_values('GI_Zscore', ascending=True, inplace=True)
+
+	return zscore_df
 
 def get_args():
     # get some user arguments
