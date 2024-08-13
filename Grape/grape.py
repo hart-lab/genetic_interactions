@@ -35,6 +35,7 @@ import sys as sys
 import numpy as np
 import pandas as pd
 import scipy.stats as stats
+from statsmodels.stats.multitest import fdrcorrection
 from sklearn.linear_model import LinearRegression
 
 
@@ -255,7 +256,7 @@ def get_zscore( regression_df, half_window_size=0, monotone_filter=True ):
 			bin_ = bin_[(bin_['GI_raw'] >= lower_bound) & (bin_['GI_raw'] <= upper_bound)]
 			local_std = bin_['GI_raw'].std()
 			#
-			# assigne value in df
+			# assigne value in df, 
 			#
 			if (monotone_filter):
 				prev_std = zscore_df.iloc[idx-1, zscore_df.columns.get_loc('local_std')]
@@ -275,6 +276,8 @@ def get_zscore( regression_df, half_window_size=0, monotone_filter=True ):
 	# sort by GI Z-score and return
 	#
 	zscore_df.sort_values('GI_Zscore', ascending=True, inplace=True)
+	zscore_df['Pval'] = stats.norm.cdf( zscore_df.GI_Zscore )
+	zscore_df['Padj'] = fdrcorrection( zscore_df.Pval )[1] 
 
 	return zscore_df
 
