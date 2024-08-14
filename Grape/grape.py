@@ -1,7 +1,7 @@
 #!/bin/env python
 
 #VERSION = "0.0.1"
-#BUILD   = 3
+#BUILD   = 4
 
 #--------------------------------
 # GRAPE: Genetic interaction Regression Analysis of Pairwise Effects
@@ -208,6 +208,21 @@ def do_regression( predictor_matrix, obs_vector, fit_intercept=False, delimiter=
 	metadata['Intercept'] = model.intercept_
 	metadata['Params']  = model.get_params()
 	return pairs, singles, metadata
+
+def dynamic_range_filter( regression_pairs ):
+	"""
+	Identify target list where expected phenotype (fc_exp) is beyond the dynamic range of the assay (min fc_obs).
+	These break the regression model.
+
+	Parameters:
+	- regression_pairs: 'pairs' output from do_regression().
+	Returns:
+	- subset of regression_pairs dataframe whose indices should be deleted from the foldchange df, and the 
+	  grape pipeline run again.
+	"""
+	fc_limit = regression_pairs['fc_obs'].min()
+	pairs_to_remove = regression_pairs[ regression_pairs['fc_exp'] < fc_limit ]
+	return pairs_to_remove
 
 def get_zscore( regression_df, half_window_size=0, monotone_filter=True ):
 	"""
