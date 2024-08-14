@@ -54,7 +54,8 @@ def generate_fitness_matrix(num_total_genes=200,
                             mu_k_fitness_max=1.0,
                             genetic_interaction_frequency=0.03,
                             genetic_interaction_fitness_min=0.5,
-                            genetic_interaction_fitness_max=1.0):
+                            genetic_interaction_fitness_max=1.0,
+                            wt_gi_multiplier=0.1):
     """
     Generate an NxN matrix of target knockout fitness values.
     A[i,i] = single gene fitness, where 1.0 = wildtype and 0.0 = total loss of proliferation
@@ -88,8 +89,15 @@ def generate_fitness_matrix(num_total_genes=200,
     # off diagonal: genetic interaction. 
     #
     for i in range(num_total_genes-1):
+        fit_i = fitness_matrix.loc[i,i]
         for j in range(i+1,num_total_genes):
-            if (np.random.rand() <= genetic_interaction_frequency):
+            fit_j = fitness_matrix.loc[j,j]
+            if ( (fit_i ==1) & (fit_j ==1 ) ):
+                # among "wildtype" genes, reduce 
+                genetic_interaction_frequency_threshold = genetic_interaction_frequency * wt_gi_multiplier
+            else:
+                genetic_interaction_frequency_threshold = genetic_interaction_frequency
+            if (np.random.rand() <= genetic_interaction_frequency_threshold):
                 fitness_matrix.loc[i,j] = np.random.uniform(low=genetic_interaction_fitness_min, high=genetic_interaction_fitness_max)
     #
     # return fitness matrix
