@@ -93,10 +93,18 @@ def get_mean_foldchange(fc_df, target_columns=0, mean_replicates=True, groupby_t
     Parameters:
     - fc_df: dataframe of fold changes, where index is unique ID and first column is the target gene(s). Subsequent
       columns are the replicates to be averaged.
-    - target_columns: Column labels or indices indicating replicates to be averaged. Not currently implemented.
+    - target_columns: List of column labels indicating replicates to be averaged.
     - mean_replicates: whether to average across replicate columns. Default=True
     - groupby_targets: whether to groupby(target gene).mean(). Default=True
     """
+	if target_columns:
+		#
+		# use target columns
+		target_columns = target_columns
+	else:
+		# use all columns
+		target_columns = fc_df.columns.values
+
 	if mean_replicates:
 		outcols = [fc_df.columns.values[0], 'meanFC']
 	else:
@@ -106,7 +114,7 @@ def get_mean_foldchange(fc_df, target_columns=0, mean_replicates=True, groupby_t
 	mean_fc_df[ outcols[0] ] = fc_df[ outcols[0] ]
 
 	if mean_replicates:
-		mean_fc_df[ outcols[1] ] = fc_df[ fc_df.columns.values[1:] ].mean(1)
+		mean_fc_df[ outcols[1] ] = fc_df[ target_columns ].mean(1)
 	else:
 		mean_fc_df[ outcols[1:] ] = fc_df[ fc_df.columns.values[1:] ]
 
