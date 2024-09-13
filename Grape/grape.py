@@ -232,7 +232,7 @@ def dynamic_range_filter( regression_pairs ):
 	pairs_to_remove = regression_pairs[ regression_pairs['fc_exp'] < fc_limit ]
 	return pairs_to_remove
 
-def get_zscore( regression_df, half_window_size=0, monotone_filter=True ):
+def get_zscore( regression_df, half_window_size=500, monotone_filter=False ):
 	"""
 	calculate zscore of genetic interactions through drugz variance window method
 
