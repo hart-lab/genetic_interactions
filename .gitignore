@@ -1,0 +1,8 @@
+# ignore MacOS files
+.DS_Store
+**/.DS_Store
+._.DS_Store
+**/._.DS_Store
+
+# virtual env
+grape_env
