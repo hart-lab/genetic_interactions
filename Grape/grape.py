@@ -240,7 +240,7 @@ def get_zscore( regression_df, half_window_size=500, monotone_filter=False ):
 	- pairs: output of do_regression()
 	- half_window_size: half window size for calculating local variance. If set to 
 						zero (default), calculate global, not local variance
-	- monotonte filter: force monotonic increase in variance as 
+	- monotonte filter: force monotonic increase in variance
 	Returns:
 	- pairs, with 'local_std' and 'GI_Zscore' column
 	"""
