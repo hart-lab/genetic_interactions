@@ -1,6 +1,6 @@
 #!/bin/env python
 
-#VERSION = "0.0.2"
+#VERSION = "0.0.3"
 #BUILD   = 2
 
 
@@ -35,6 +35,7 @@
 import sys as sys
 import numpy as np
 import pandas as pd
+import scipy.stats as stats
 
 def load_fitness_matrix(filepath, index_column=0, delimiter='\t'):
     """
@@ -50,10 +51,10 @@ def load_fitness_matrix(filepath, index_column=0, delimiter='\t'):
 def generate_fitness_matrix(num_total_genes=200,
                             num_fitness_genes=50,
                             mu_k_wt=1.0,
-                            mu_k_fitness_min=0.5,
+                            mu_k_fitness_min=0.2,
                             mu_k_fitness_max=1.0,
-                            genetic_interaction_frequency=0.03,
-                            genetic_interaction_fitness_min=0.5,
+                            genetic_interaction_frequency=0.01,
+                            genetic_interaction_fitness_min=0.2,
                             genetic_interaction_fitness_max=1.0,
                             wt_gi_multiplier=0.1):
     """
@@ -105,11 +106,12 @@ def generate_fitness_matrix(num_total_genes=200,
     return fitness_matrix
 
 def generate_fitness_table(fitness_matrix,
-                            sigma_k=0.05,
+                            sigma_k=0.03,
                             t=8,
                             transduction_depth=500,
                             median_read_depth=500,
-                            pseudocount=0,
+                            overdispersion_param=0.5,
+                            pseudocount=1,
                             set_seed=0,
                             seed=0):
     """
@@ -164,9 +166,20 @@ def generate_fitness_table(fitness_matrix,
     
     fitness_table['Xt']    = fitness_table.X0 * 2**( fitness_table.k_obs * t )
     
-    # scale observed cell counts, Xt, to median library coverage/sequecing read depth and add pseudocount, if present
+    # scale observed cell counts, Xt, to median library coverage/sequecing read depth
+    reads_t = np.floor( fitness_table.Xt.values * median_read_depth / fitness_table.Xt.median() )
+
+    # add sequencing noise from negative binomial model with overdispersion paramenter p
+    p = overdispersion_param
+    n = reads_t * p / (1-p)
+
+    # calculate "observed" reads and add pseudocount, if present. 
     
-    fitness_table['Reads_t']   = np.floor( fitness_table.Xt.values * median_read_depth / fitness_table.Xt.median() ) + pseudocount
+    fitness_table['Reads_t']   = stats.nbinom.rvs(n=n, p=p) + pseudocount
+
+    # calculate fold change from observed reads_t and initial reads X0.
+    # note that absence of a pseudocount can lead to zeros at reads_t and nans for log(fc)
+
     fitness_table['Log2fc']   =  np.log2(  (fitness_table.Reads_t.values / sum(fitness_table.Reads_t.values ) ) /  \
                                         (fitness_table.X0.values / sum(fitness_table.X0.values ) ) )
     
