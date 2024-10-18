@@ -232,7 +232,7 @@ def dynamic_range_filter( regression_pairs ):
 	pairs_to_remove = regression_pairs[ regression_pairs['fc_exp'] < fc_limit ]
 	return pairs_to_remove
 
-def get_zscore( regression_df, half_window_size=0, monotone_filter=True ):
+def get_zscore( regression_df, half_window_size=500, monotone_filter=False ):
 	"""
 	calculate zscore of genetic interactions through drugz variance window method
 
@@ -240,7 +240,7 @@ def get_zscore( regression_df, half_window_size=0, monotone_filter=True ):
 	- pairs: output of do_regression()
 	- half_window_size: half window size for calculating local variance. If set to 
 						zero (default), calculate global, not local variance
-	- monotonte filter: force monotonic increase in variance as 
+	- monotonte filter: force monotonic increase in variance
 	Returns:
 	- pairs, with 'local_std' and 'GI_Zscore' column
 	"""
