@@ -106,36 +106,37 @@ def generate_fitness_matrix(num_total_genes=200,
     return fitness_matrix
 
 def generate_fitness_table(fitness_matrix,
-                            sigma_k=0.03,
-                            t=8,
-                            transduction_depth=500,
-                            median_read_depth=500,
-                            overdispersion_param=0.5,
-                            pseudocount=1,
-                            set_seed=0,
-                            seed=0):
+                                 num_guides=4,
+                                 guide_stddev=0.0755,
+                                 sigma_k=0.03,
+                                 t=8,
+                                 transduction_depth=500,
+                                 median_read_depth=500,
+                                 overdispersion_param=0.5,
+                                 pseudocount=1,
+                                 set_seed=0,
+                                 seed=0):
     """
-    Generate a dataframe of targets, single and double, with expected and actual knockout fitness values.
-    :param fitness_matrix: matrix from generate_fitness_matrix()
-    :return: fitness_table: A dataframe containing the total screen simulation
+    Generate a guide-level fitness table.
+    :parm fitness_matrix: matrix from generate_fitness_matrix()
+    :parm num_guides: Number of guides per target.
+    :parm std_dev: Standard deviation for sampling mu_k values.
+    
+    :return: guide_level_fitness_table: DataFrame containing guide-level fitness information.
     """
     if (set_seed==1):
        np.random.seed(seed)
 
     genelist = fitness_matrix.index.values
     num_genes_in_genelist = len(genelist)
-    num_total_genepairs_and_singles = (num_genes_in_genelist * (num_genes_in_genelist -1 ) / 2) + num_genes_in_genelist
-    fitness_table = pd.DataFrame( index=np.arange(num_total_genepairs_and_singles), columns=['target_id','X0','mu_k','GI'], data=0.)
-                                                        # set data=0. to set column dtypes to float
-    fitness_table = fitness_table.astype({'target_id': object}, copy=False, errors='raise')     # if the genelist is integers,
-                                                                                                # we should interpret as strings.
+    guide_level_data = []
+
     #
-    # populate the fitness table
+    # populate the guide-level fitness table
     #
-    idx = 0
-    for i in np.arange(num_genes_in_genelist):
+    for i in range(num_genes_in_genelist):
         gene1 = str(genelist[i])
-        for j in np.arange(i,num_genes_in_genelist):
+        for j in range(i, num_genes_in_genelist):
             gene2 = str(genelist[j])
             if (i==j):
                 #
@@ -152,8 +153,22 @@ def generate_fitness_table(fitness_matrix,
                 mu_k = fitness_matrix.loc[i,i] * fitness_matrix.loc[j,j] * fitness_matrix.loc[i,j]   # k1 * k2 * GI
                 target = gene1 + "_" + gene2
                 gi = fitness_matrix.loc[i,j]
-            fitness_table.loc[idx,['target_id','mu_k','GI']] = target, mu_k, gi
-            idx = idx + 1                 # pretty sure there's a better way to do this.
+                
+            # generate guide-level data for each target
+            for guide_num in range(1, num_guides + 1):
+                guide_id = f'{target}_guide{guide_num}'
+                mu_k_guide = np.random.normal(loc=mu_k, scale=guide_stddev)   # sample mu_k for guides
+                guide_level_data.append({
+                    'guide_id': guide_id,
+                    'target_id': target,
+                    'mu_k': mu_k_guide,
+                    'GI': gi
+                })
+
+    # Convert the list of dictionaries to a DataFrame
+    fitness_table = pd.DataFrame(guide_level_data)
+    fitness_table = fitness_table.astype({'mu_k': float, 'GI': float})
+
     #
     # set X0 counts for each target. Placeholder for future roadmap where this value might vary.
     #
@@ -164,7 +179,7 @@ def generate_fitness_table(fitness_matrix,
     
     fitness_table['k_obs'] = np.random.normal( loc=fitness_table['mu_k'].values, scale=sigma_k)
     
-    fitness_table['Xt']    = fitness_table.X0 * 2**( fitness_table.k_obs * t )
+    fitness_table['Xt'] = fitness_table.X0 * 2**( fitness_table.k_obs * t )
     
     # scale observed cell counts, Xt, to median library coverage/sequecing read depth
     reads_t = np.floor( fitness_table.Xt.values * median_read_depth / fitness_table.Xt.median() )
@@ -184,11 +199,12 @@ def generate_fitness_table(fitness_matrix,
                                         (fitness_table.X0.values / sum(fitness_table.X0.values ) ) )
     
     fitness_table = fitness_table.astype({'Reads_t': int}, copy=False, errors='raise')     # reads should be integer
-    fitness_table.set_index('target_id', inplace=True)
+    fitness_table.set_index('guide_id', inplace=True)
 
     # complete?
 
     return fitness_table
+
 
 def write_fitness_table(fitness_table, output_filepath, float_format='%4.3f', sep='\t'):
     fitness_table.to_csv(output_filepath, float_format=float_format, sep=sep)
