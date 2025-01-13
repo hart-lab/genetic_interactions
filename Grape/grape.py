@@ -242,12 +242,12 @@ def get_zscore( regression_df, half_window_size=500, monotone_filter=False ):
 						zero (default), calculate global, not local variance
 	- monotonte filter: force monotonic increase in variance
 	Returns:
-	- pairs, with 'local_std' and 'GI_Zscore' column
+	- pairs, with 'local_std', 'GI_Zscore', 'Pval_synth', 'Padj_synth', 'Pval_supp', 'Padj_supp' columns
 	"""
 
 	# sort the regression DF by expected fold change:
 
-	zscore_df = regression_df.sort_values('fc_exp', ascending=False)
+	zscore_df = regression_df.sort_values('fc_exp', ascending=False).copy()
 
 	# Intialize output columns
 	zscore_df[['local_std','GI_Zscore']] = 0.
@@ -296,13 +296,18 @@ def get_zscore( regression_df, half_window_size=500, monotone_filter=False ):
 		#
 		zscore_df['GI_Zscore'] = zscore_df['GI_raw'] / zscore_df['local_std']   # mean had better be zero!
 	#
-	# sort by GI Z-score and return
+	# calculate synthetic and suppressing interaction p-value and FDR
 	#
 	zscore_df.sort_values('GI_Zscore', ascending=True, inplace=True)
-	zscore_df['Pval'] = stats.norm.cdf( zscore_df.GI_Zscore )
-	zscore_df['Padj'] = fdrcorrection( zscore_df.Pval )[1] 
+	zscore_df['Pval_synth'] = stats.norm.cdf( zscore_df.GI_Zscore )
+	zscore_df['Padj_synth'] = fdrcorrection( zscore_df.Pval_synth )[1] 
+    
+	zscore_df.sort_values('GI_Zscore', ascending=False, inplace=True)
+	zscore_df['Pval_supp'] = stats.norm.sf( zscore_df.GI_Zscore )
+	zscore_df['Padj_supp'] = fdrcorrection( zscore_df.Pval_supp )[1]
+    
+	return zscore_df.sort_values('GI_Zscore', ascending=True)
 
-	return zscore_df
 
 def get_args():
     # get some user arguments
