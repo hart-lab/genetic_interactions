@@ -36,6 +36,7 @@ import sys as sys
 import numpy as np
 import pandas as pd
 import scipy.stats as stats
+import argparse
 
 def load_fitness_matrix(filepath, index_column=0, delimiter='\t'):
     """
@@ -66,6 +67,7 @@ def generate_fitness_matrix(num_total_genes=200,
     :param filepath: The path to the file to be loaded
     :param index_column: The column to use as an index (contains target IDs). Default 0.
     :param delimiter: tab or comma delimited file. Default '\t'
+    
     :return: fit_mat: A dataframe containing the N x N fitness matrix to be used in the further analysis
     """  
     # initialize matrix: all ones
@@ -74,6 +76,10 @@ def generate_fitness_matrix(num_total_genes=200,
     num_wt_genes = num_total_genes - num_fitness_genes
     if (num_fitness_genes > num_total_genes):
         sys.exit('Number of fitness genes exceeds number of total genes\n')
+    #
+    # Initialize gene label
+    wt_genes = list(range(num_wt_genes))
+    fitness_genes = list(range(num_wt_genes, num_total_genes))
     #
     # single gene phenotypes: mu_k. 
     # wildtype genes (no fitness phenotype)
@@ -101,26 +107,35 @@ def generate_fitness_matrix(num_total_genes=200,
             if (np.random.rand() <= genetic_interaction_frequency_threshold):
                 fitness_matrix.loc[i,j] = np.random.uniform(low=genetic_interaction_fitness_min, high=genetic_interaction_fitness_max)
     #
-    # return fitness matrix
+    # Return fitness matrix and gene labels
     #
-    return fitness_matrix
+    gene_labels = {
+        'wildtype': wt_genes,
+        'fitness': fitness_genes
+    }
 
-def generate_fitness_table(fitness_matrix,
-                                 num_guides=4,
-                                 guide_stddev=0.0755,
-                                 sigma_k=0.03,
-                                 t=8,
-                                 transduction_depth=500,
-                                 median_read_depth=500,
-                                 overdispersion_param=0.5,
-                                 pseudocount=1,
-                                 set_seed=0,
-                                 seed=0):
+    return fitness_matrix, gene_labels
+
+
+def generate_fitness_table( fitness_matrix,
+                            gene_labels,
+                            num_guides=4,
+                            guide_stddev=0.0755,
+                            sigma_k=0.03,
+                            t=8,
+                            transduction_depth=500,
+                            median_read_depth=500,
+                            overdispersion_param=0.5,
+                            pseudocount=1,
+                            set_seed=0,
+                            seed=0):
     """
     Generate a guide-level fitness table.
     :parm fitness_matrix: matrix from generate_fitness_matrix()
+    :parm gene_labels: dictionary containing 'wildtype' or 'fitness' gene lists, from generate_fitness_matrix().
     :parm num_guides: Number of guides per target.
     :parm std_dev: Standard deviation for sampling mu_k values.
+    :parm overdispersion_param: must be between 0 and 1.
     
     :return: guide_level_fitness_table: DataFrame containing guide-level fitness information.
     """
@@ -136,8 +151,10 @@ def generate_fitness_table(fitness_matrix,
     #
     for i in range(num_genes_in_genelist):
         gene1 = str(genelist[i])
+        gene1_label = 'wildtype' if i in gene_labels['wildtype'] else 'fitness'
         for j in range(i, num_genes_in_genelist):
             gene2 = str(genelist[j])
+            gene2_label = 'wildtype' if j in gene_labels['wildtype'] else 'fitness'
             if (i==j):
                 #
                 # on the diagonal of the fitness matrix, we are dealing with single knockout fitness
@@ -145,14 +162,16 @@ def generate_fitness_table(fitness_matrix,
                 mu_k = fitness_matrix.loc[i,i]
                 target = gene1
                 gi = 1.
+                guide_label = gene1_label
             else:
                 #
                 # off the diagonal, we are dealing with double knockout fitness. Under the multiplicatiave
                 # model, this is ki * kj. With interactions, this is ki * kj * GI(i,j)
                 #
                 mu_k = fitness_matrix.loc[i,i] * fitness_matrix.loc[j,j] * fitness_matrix.loc[i,j]   # k1 * k2 * GI
-                target = gene1 + "_" + gene2
+                target = f'{gene1}_{gene2}'
                 gi = fitness_matrix.loc[i,j]
+                guide_label = f'{gene1_label}_{gene2_label}'
                 
             # generate guide-level data for each target
             for guide_num in range(1, num_guides + 1):
@@ -162,7 +181,8 @@ def generate_fitness_table(fitness_matrix,
                     'guide_id': guide_id,
                     'target_id': target,
                     'mu_k': mu_k_guide,
-                    'GI': gi
+                    'GI': gi,
+                    'label': guide_label
                 })
 
     # Convert the list of dictionaries to a DataFrame
@@ -187,6 +207,8 @@ def generate_fitness_table(fitness_matrix,
     # add sequencing noise from negative binomial model with overdispersion paramenter p
     p = overdispersion_param
     n = reads_t * p / (1-p)
+    if np.any(n <= 0):
+        raise ValueError("Invalid 'n' values calculated for the negative binomial distribution.")
 
     # calculate "observed" reads and add pseudocount, if present. 
     
@@ -207,19 +229,97 @@ def generate_fitness_table(fitness_matrix,
 
 
 def write_fitness_table(fitness_table, output_filepath, float_format='%4.3f', sep='\t'):
-    fitness_table.to_csv(output_filepath, float_format=float_format, sep=sep)
+    # select only numeric columns
+    numeric_columns = fitness_table.select_dtypes(include=['float', 'int']).columns
+    
+    formatted_fitness_table = fitness_table.copy()
+    formatted_fitness_table[numeric_columns] = formatted_fitness_table[numeric_columns].apply(lambda col: col.map(lambda x: float_format % x))
+    formatted_fitness_table.to_csv(output_filepath, sep=sep, index=True)
     return 0
 
-def synulator(args):
-    # lots of parsing of user arguments to be processed here
-    fitness_matrix = generate_fitness_matrix()
-    fitness_table  = generate_fitness_table(fitness_matrix=fitness_matrix)
-    write_fitness_table(fitness_table, output_filepath='./simulated_gi_screen.txt')
-    return 0
 
 def get_args():
-    # get some user arguments
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(description="Simulate genetic interaction screen data.")
+    parser.add_argument('--output', type=str, default='./simulated_gi_screen.txt',
+                        help="Output file path for the simulated fitness table. Default: ./simulated_gi_screen.txt")
+    parser.add_argument('--num_total_genes', type=int, default=200,
+                        help="Total number of genes. Default: 200")
+    parser.add_argument('--num_fitness_genes', type=int, default=50,
+                        help="Number of fitness genes. Default: 50")
+    parser.add_argument('--mu_k_wt', type=float, default=1.0,
+                        help="Wildtype fitness mean. Default: 1.0")
+    parser.add_argument('--mu_k_fitness_min', type=float, default=0.2,
+                        help="Minimum fitness value for fitness genes. Default: 0.2")
+    parser.add_argument('--mu_k_fitness_max', type=float, default=1.0,
+                        help="Maximum fitness value for fitness genes. Default: 1.0")
+    parser.add_argument('--genetic_interaction_frequency', type=float, default=0.01,
+                        help="Frequency of genetic interactions. Default: 0.01")
+    parser.add_argument('--genetic_interaction_fitness_min', type=float, default=0.2,
+                        help="Minimum fitness value for genetic interactions. Default: 0.2")
+    parser.add_argument('--genetic_interaction_fitness_max', type=float, default=1.0,
+                        help="Maximum fitness value for genetic interactions. Default: 1.0")
+    parser.add_argument('--wt_gi_multiplier', type=float, default=0.1,
+                        help="Multiplier for wildtype genetic interactions. Default: 0.1")
+    parser.add_argument('--num_guides', type=int, default=4,
+                        help="Number of guides per gene or pair. Default: 4")
+    parser.add_argument('--guide_stddev', type=float, default=0.0755,
+                        help="Standard deviation for guide-level fitness values. Default: 0.0755")
+    parser.add_argument('--sigma_k', type=float, default=0.03,
+                        help="Standard deviation for observed fitness noise. Default: 0.03")
+    parser.add_argument('--transduction_depth', type=int, default=500,
+                        help="Initial transduction depth. Default: 500")
+    parser.add_argument('--median_read_depth', type=int, default=500,
+                        help="Median read depth for normalization. Default: 500")
+    parser.add_argument('--overdispersion_param', type=float, default=0.5,
+                        help="Overdispersion parameter for sequencing noise. Default: 0.5")
+    parser.add_argument('--pseudocount', type=int, default=1,
+                        help="Pseudocount added to avoid zeroes. Default: 1")
+    parser.add_argument('--set_seed', type=int, default=0,
+                        help="Whether to set a random seed. Default: 0 (no seed)")
+    parser.add_argument('--seed', type=int, default=0,
+                        help="Seed value for random number generation. Default: 0")
+    return parser.parse_args()
+
+
+def synulator(args):
+    """
+    Simulate the genetic interaction screen using provided arguments.
+    """
+    # Generate fitness matrix and labels
+    fitness_matrix, gene_labels = generate_fitness_matrix(
+        num_total_genes=args.num_total_genes,
+        num_fitness_genes=args.num_fitness_genes,
+        mu_k_wt=args.mu_k_wt,
+        mu_k_fitness_min=args.mu_k_fitness_min,
+        mu_k_fitness_max=args.mu_k_fitness_max,
+        genetic_interaction_frequency=args.genetic_interaction_frequency,
+        genetic_interaction_fitness_min=args.genetic_interaction_fitness_min,
+        genetic_interaction_fitness_max=args.genetic_interaction_fitness_max,
+        wt_gi_multiplier=args.wt_gi_multiplier
+    )
+    
+    # Generate guide-level fitness table
+    fitness_table = generate_fitness_table(
+        fitness_matrix=fitness_matrix,
+        gene_labels=gene_labels,
+        num_guides=args.num_guides,
+        guide_stddev=args.guide_stddev,
+        sigma_k=args.sigma_k,
+        t=8,
+        transduction_depth=args.transduction_depth,
+        median_read_depth=args.median_read_depth,
+        overdispersion_param=args.overdispersion_param,
+        pseudocount=args.pseudocount,
+        set_seed=args.set_seed,
+        seed=args.seed
+    )
+    
+    # Write the table to a file
+    write_fitness_table(fitness_table, output_filepath=args.output)
+    print(f"Simulation complete. Output saved to: {args.output}")
     return 0
+
 
 def main():
     args = get_args()
