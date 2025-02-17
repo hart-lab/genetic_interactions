@@ -267,6 +267,8 @@ def get_args():
                         help="Standard deviation for guide-level fitness values. Default: 0.0755")
     parser.add_argument('--sigma_k', type=float, default=0.03,
                         help="Standard deviation for observed fitness noise. Default: 0.03")
+    parser.add_argument('--time', type=int, default=8,
+                        help="Doubling time. Default: 8")
     parser.add_argument('--transduction_depth', type=int, default=500,
                         help="Initial transduction depth. Default: 500")
     parser.add_argument('--median_read_depth', type=int, default=500,
@@ -306,7 +308,7 @@ def synulator(args):
         num_guides=args.num_guides,
         guide_stddev=args.guide_stddev,
         sigma_k=args.sigma_k,
-        t=8,
+        t=args.time,
         transduction_depth=args.transduction_depth,
         median_read_depth=args.median_read_depth,
         overdispersion_param=args.overdispersion_param,
